@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard en Vivo - Inventario Mayoreo</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- PapaParse para procesar el CSV dinámico de Google Drive -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style> body { font-family: 'Inter', sans-serif; } </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-4 md:p-8">
+
+  <div class="max-w-7xl mx-auto space-y-6">
+    
+    <!-- Encabezado con estado de conexión -->
+    <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold text-white tracking-tight flex items-center gap-2">
+          ⚡ Dashboard de Inventario en Tiempo Real
+        </h1>
+        <p class="text-slate-400 text-sm mt-1">Conectado dinámicamente a tu base de datos en Google Drive</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button onclick="syncData()" id="syncBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+          <svg id="syncIcon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+          Sincronizar Datos
+        </button>
+        <span id="statusBadge" class="bg-amber-500/10 text-amber-400 text-xs font-semibold px-3 py-2 rounded-lg border border-amber-500/20">
+          Cargando...
+        </span>
+      </div>
+    </header>
+
+    <!-- Tarjetas de Métricas en Vivo -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-slate-800/80 border border-slate-700/60 p-5 rounded-xl">
+        <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">Unidades Filtradas</p>
+        <p class="text-3xl font-bold text-white mt-1" id="kpi-units">0</p>
+        <p class="text-xs text-slate-500 mt-1" id="kpi-total-units">Total en base: 0</p>
+      </div>
+      <div class="bg-slate-800/80 border border-slate-700/60 p-5 rounded-xl">
+        <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">Valor Subtotal Filtrado</p>
+        <p class="text-3xl font-bold text-emerald-400 mt-1" id="kpi-subtotal">$0</p>
+        <p class="text-xs text-slate-500 mt-1" id="kpi-total-val">Total en base: $0</p>
+      </div>
+      <div class="bg-slate-800/80 border border-slate-700/60 p-5 rounded-xl">
+        <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">Precio Promedio / Equipo</p>
+        <p class="text-3xl font-bold text-blue-400 mt-1" id="kpi-avg">$0</p>
+        <p class="text-xs text-slate-500 mt-1">Calculado dinámicamente</p>
+      </div>
+      <div class="bg-slate-800/80 border border-slate-700/60 p-5 rounded-xl">
+        <p class="text-slate-400 text-xs font-medium uppercase tracking-wider">Última Actualización</p>
+        <p class="text-xl font-bold text-slate-200 mt-2" id="kpi-time">--:--:--</p>
+        <p class="text-xs text-slate-500 mt-1">Hora local de consulta</p>
+      </div>
+    </div>
+
+    <!-- Panel de Filtros Interactivos -->
+    <div class="bg-slate-800/50 border border-slate-700/50 p-5 rounded-xl space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        
+        <!-- Buscador libre -->
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">Búsqueda General</label>
+          <input type="text" id="searchInput" placeholder="Modelo, especificacion..." 
+                 class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
+        </div>
+
+        <!-- Filtro Marca -->
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">Marca</label>
+          <select id="brandFilter" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
+            <option value="ALL">Todas las marcas</option>
+          </select>
+        </div>
+
+        <!-- Filtro Categoría -->
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">Categoría</label>
+          <select id="categoryFilter" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
+            <option value="ALL">Todas las categorías</option>
+          </select>
+        </div>
+
+        <!-- Ordenamiento -->
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">Ordenar por</label>
+          <select id="sortFilter" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
+            <option value="price-desc">Precio: Mayor a Menor</option>
+            <option value="price-asc">Precio: Menor a Mayor</option>
+            <option value="qty-desc">Cantidad: Mayor a Menor</option>
+            <option value="brand-asc">Marca (A-Z)</option>
+          </select>
+        </div>
+
+      </div>
+
+      <!-- Filtro Rango de Precio -->
+      <div class="pt-2 border-t border-slate-700/50 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div class="flex items-center gap-3 w-full md:w-auto">
+          <span class="text-xs font-medium text-slate-400">Rango de Precio (Unitario):</span>
+          <input type="number" id="minPriceInput" placeholder="Min $" class="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+          <span class="text-slate-500">-</span>
+          <input type="number" id="maxPriceInput" placeholder="Max $" class="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+        </div>
+        <button onclick="resetFilters()" class="text-xs text-slate-400 hover:text-white underline">Limpiar Filtros</button>
+      </div>
+    </div>
+
+    <!-- Tabla Dinámica -->
+    <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl overflow-hidden shadow-xl">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-900/80 text-slate-400 text-xs font-semibold uppercase tracking-wider border-b border-slate-700">
+            <tr>
+              <th class="py-3.5 px-4">Cant.</th>
+              <th class="py-3.5 px-4">Categoría</th>
+              <th class="py-3.5 px-4">Marca</th>
+              <th class="py-3.5 px-4">Modelo / Descripción</th>
+              <th class="py-3.5 px-4">Almacenamiento</th>
+              <th class="py-3.5 px-4">RAM / Notas</th>
+              <th class="py-3.5 px-4 text-right">P. Mayoreo</th>
+              <th class="py-3.5 px-4 text-right">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody id="inventoryTable" class="divide-y divide-slate-700/50 text-slate-300">
+            <!-- Cargando datos... -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // ID del archivo de Google Drive
+    const SHEET_ID = '1RJc_5_zHt4IvjzBQcvhtwfUoHDfvZD2d';
+    // Endpoint dinámico para consultar el CSV en vivo
+    const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`;
+
+    let rawInventory = [];
+
+    async function syncData() {
+      const statusBadge = document.getElementById('statusBadge');
+      const syncIcon = document.getElementById('syncIcon');
+      
+      statusBadge.className = 'bg-blue-500/10 text-blue-400 text-xs font-semibold px-3 py-2 rounded-lg border border-blue-500/20';
+      statusBadge.innerText = 'Sincronizando...';
+      syncIcon.classList.add('animate-spin');
+
+      try {
+        const response = await fetch(CSV_URL);
+        if (!response.ok) throw new Error('Error al conectar con Google Drive');
+        
+        const csvText = await response.text();
+        
+        Papa.parse(csvText, {
+          header: false,
+          skipEmptyLines: true,
+          complete: function(results) {
+            processParsedCSV(results.data);
+            
+            statusBadge.className = 'bg-emerald-500/10 text-emerald-400 text-xs font-semibold px-3 py-2 rounded-lg border border-emerald-500/20';
+            statusBadge.innerText = '● Conectado en Vivo';
+            syncIcon.classList.remove('animate-spin');
+            document.getElementById('kpi-time').innerText = new Date().toLocaleTimeString();
+          }
+        });
+      } catch (err) {
+        console.error(err);
+        statusBadge.className = 'bg-rose-500/10 text-rose-400 text-xs font-semibold px-3 py-2 rounded-lg border border-rose-500/20';
+        statusBadge.innerText = '⚠️ Error de lectura';
+        syncIcon.classList.remove('animate-spin');
+      }
+    }
+
+    function processParsedCSV(rows) {
+      rawInventory = [];
+      let currentCategory = 'Mayoreo';
+
+      rows.forEach(row => {
+        if (!row || row.length === 0) return;
+        
+        const firstCol = (row[0] || '').toString().trim();
+        const secondCol = (row[1] || '').toString().trim();
+
+        // Detectar si la fila es un encabezado de categoría (ej. "En caja", "NUEVOS", "Laptops")
+        if (firstCol && !secondCol && isNaN(parseInt(firstCol))) {
+          currentCategory = firstCol;
+          return;
+        }
+
+        // Si la primera columna es un número, es un registro de producto
+        const qty = parseInt(firstCol);
+        if (!isNaN(qty) && secondCol) {
+          const brand = secondCol;
+          const model = (row[2] || '').toString().trim();
+          const storage = (row[3] || '').toString().trim();
+          const ram = (row[4] || '').toString().trim();
+          const price = parseFloat((row[5] || '0').toString().replace(/[^0-9.-]+/g,"")) || 0;
+          const subtotal = parseFloat((row[7] || row[6] || '0').toString().replace(/[^0-9.-]+/g,"")) || (qty * price);
+
+          rawInventory.push({
+            qty,
+            cat: currentCategory,
+            brand,
+            model,
+            storage,
+            ram,
+            price,
+            subtotal
+          });
+        }
+      });
+
+      populateFilterOptions();
+      applyFilters();
+    }
+
+    function populateFilterOptions() {
+      const brandSelect = document.getElementById('brandFilter');
+      const catSelect = document.getElementById('categoryFilter');
+
+      const brands = [...new Set(rawInventory.map(item => item.brand))].sort();
+      const categories = [...new Set(rawInventory.map(item => item.cat))].sort();
+
+      brandSelect.innerHTML = '<option value="ALL">Todas las marcas</option>';
+      brands.forEach(b => brandSelect.innerHTML += `<option value="${b}">${b}</option>`);
+
+      catSelect.innerHTML = '<option value="ALL">Todas las categorías</option>';
+      categories.forEach(c => catSelect.innerHTML += `<option value="${c}">${c}</option>`);
+    }
+
+    function applyFilters() {
+      const search = document.getElementById('searchInput').value.toLowerCase();
+      const selectedBrand = document.getElementById('brandFilter').value;
+      const selectedCat = document.getElementById('categoryFilter').value;
+      const sortBy = document.getElementById('sortFilter').value;
+      const minPrice = parseFloat(document.getElementById('minPriceInput').value) || 0;
+      const maxPrice = parseFloat(document.getElementById('maxPriceInput').value) || Infinity;
+
+      let filtered = rawInventory.filter(item => {
+        const matchesSearch = item.brand.toLowerCase().includes(search) || 
+                              item.model.toLowerCase().includes(search) || 
+                              item.storage.toLowerCase().includes(search);
+        const matchesBrand = selectedBrand === 'ALL' || item.brand === selectedBrand;
+        const matchesCat = selectedCat === 'ALL' || item.cat === selectedCat;
+        const matchesPrice = item.price >= minPrice && item.price <= maxPrice;
+
+        return matchesSearch && matchesBrand && matchesCat && matchesPrice;
+      });
+
+      // Ordenamiento
+      if (sortBy === 'price-desc') filtered.sort((a,b) => b.price - a.price);
+      if (sortBy === 'price-asc') filtered.sort((a,b) => a.price - b.price);
+      if (sortBy === 'qty-desc') filtered.sort((a,b) => b.qty - a.qty);
+      if (sortBy === 'brand-asc') filtered.sort((a,b) => a.brand.localeCompare(b.brand));
+
+      renderTable(filtered);
+      updateKPIs(filtered);
+    }
+
+    function renderTable(data) {
+      const tbody = document.getElementById('inventoryTable');
+      tbody.innerHTML = '';
+
+      if (data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-500">No se encontraron productos con los filtros seleccionados.</td></tr>`;
+        return;
+      }
+
+      data.forEach(item => {
+        const hasNote = item.model.includes('*') || item.ram.includes('%');
+        const row = document.createElement('tr');
+        row.className = 'hover:bg-slate-700/30 transition-colors';
+        row.innerHTML = `
+          <td class="py-3 px-4 font-bold text-white">${item.qty}</td>
+          <td class="py-3 px-4"><span class="bg-slate-800 border border-slate-700 text-xs px-2 py-0.5 rounded text-slate-300">${item.cat}</span></td>
+          <td class="py-3 px-4 font-semibold text-blue-400">${item.brand}</td>
+          <td class="py-3 px-4">
+            ${item.model}
+            ${hasNote ? '<span class="ml-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] px-1 py-0.5 rounded">Detalle</span>' : ''}
+          </td>
+          <td class="py-3 px-4 text-slate-400">${item.storage || '-'}</td>
+          <td class="py-3 px-4 text-slate-400">${item.ram || '-'}</td>
+          <td class="py-3 px-4 text-right font-medium">$${item.price.toLocaleString('es-MX')}</td>
+          <td class="py-3 px-4 text-right font-bold text-emerald-400">$${item.subtotal.toLocaleString('es-MX')}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    function updateKPIs(filteredData) {
+      const filteredUnits = filteredData.reduce((acc, i) => acc + i.qty, 0);
+      const filteredSubtotal = filteredData.reduce((acc, i) => acc + i.subtotal, 0);
+      
+      const totalUnits = rawInventory.reduce((acc, i) => acc + i.qty, 0);
+      const totalSubtotal = rawInventory.reduce((acc, i) => acc + i.subtotal, 0);
+
+      const avgPrice = filteredUnits > 0 ? (filteredSubtotal / filteredUnits) : 0;
+
+      document.getElementById('kpi-units').innerText = filteredUnits.toLocaleString('es-MX');
+      document.getElementById('kpi-total-units').innerText = `Total en base: ${totalUnits.toLocaleString('es-MX')}`;
+      
+      document.getElementById('kpi-subtotal').innerText = `$${filteredSubtotal.toLocaleString('es-MX')}`;
+      document.getElementById('kpi-total-val').innerText = `Total en base: $${totalSubtotal.toLocaleString('es-MX')}`;
+
+      document.getElementById('kpi-avg').innerText = `$${Math.round(avgPrice).toLocaleString('es-MX')}`;
+    }
+
+    function resetFilters() {
+      document.getElementById('searchInput').value = '';
+      document.getElementById('brandFilter').value = 'ALL';
+      document.getElementById('categoryFilter').value = 'ALL';
+      document.getElementById('sortFilter').value = 'price-desc';
+      document.getElementById('minPriceInput').value = '';
+      document.getElementById('maxPriceInput').value = '';
+      applyFilters();
+    }
+
+    // Event Listeners para filtros
+    document.getElementById('searchInput').addEventListener('input', applyFilters);
+    document.getElementById('brandFilter').addEventListener('change', applyFilters);
+    document.getElementById('categoryFilter').addEventListener('change', applyFilters);
+    document.getElementById('sortFilter').addEventListener('change', applyFilters);
+    document.getElementById('minPriceInput').addEventListener('input', applyFilters);
+    document.getElementById('maxPriceInput').addEventListener('input', applyFilters);
+
+    // Carga inicial
+    syncData();
+  </script>
+</body>
+</html>
